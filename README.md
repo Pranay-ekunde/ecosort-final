@@ -32,20 +32,31 @@ An advanced web platform that uses AI to classify household waste into recyclabl
 ```
 ecosort/
 ├── backend/              # Express API (port 5000)
-│   └── src/
-│       ├── controllers/   # auth, scans, analytics, rewards, coupons, leaderboard, admin
-│       ├── models/       # User, Scan, Reward, Coupon (index.js exports all)
-│       ├── routes/       # Express route definitions
-│       ├── middleware/    # JWT auth, file upload
-│       ├── utils/        # pHash hashing
-│       └── tests/        # Jest test suites
-├── ai-service/            # Flask ML service (port 8000)
-│   └── models/           # best_model.keras
-└── frontend/              # React SPA (port 5173)
-    └── src/
-        ├── api/client.js # Axios + all API endpoints
-        ├── context/      # AuthContext
-        └── pages/        # All page components
+│   ├── src/
+│   │   ├── controllers/   # Route handlers
+│   │   ├── middleware/    # Auth, upload, validation logic
+│   │   ├── models/        # Mongoose schemas
+│   │   ├── routes/        # Express API definitions
+│   │   ├── tests/         # Jest test suites
+│   │   └── utils/         # Helper functions (hashing, etc.)
+│   ├── .env               # Environment variables
+│   └── package.json
+├── frontend/              # React SPA (port 5173)
+│   ├── src/
+│   │   ├── api/           # Axios client & API endpoints
+│   │   ├── components/    # Reusable UI components
+│   │   ├── context/       # React Context (Auth)
+│   │   ├── pages/         # View components
+│   │   └── App.jsx        # Main application component
+│   ├── index.html         # Entry HTML
+│   ├── package.json
+│   └── vite.config.js     # Vite configuration
+└── ai-service/            # Flask ML service (port 8000)
+    ├── models/            # Stored ML models (best_model.keras)
+    ├── testpic/           # Test images
+    ├── app.py             # Main Flask application
+    ├── requirements.txt   # Python dependencies
+    └── test_model.py      # Script to test ML model
 ```
 
 ---
