@@ -79,21 +79,6 @@ npm run dev
 # Opens http://localhost:5173
 ```
 
----
-
-## Environment Variables
-
-Create `backend/.env`:
-
-```env
-PORT=5000
-MONGODB_URI=mongodb+srv://<user>:<pass>@<cluster>/ecosort
-JWT_SECRET=your_secret_key
-JWT_EXPIRE=7d
-AI_SERVICE_URL=http://localhost:8000
-```
-
----
 
 ## API Endpoints
 
