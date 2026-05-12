@@ -1,0 +1,17 @@
+const router = require("express").Router();
+const ctrl   = require("../controllers/adminController");
+const { protect, adminOnly } = require("../middleware/auth");
+router.use(protect, adminOnly);
+router.get("/stats",                    ctrl.getStats);
+router.get("/system",                   ctrl.getSystemHealth);
+router.get("/analytics",                ctrl.getAnalytics);
+router.get("/users",                    ctrl.getAllUsers);
+router.get("/users/:id",                ctrl.getUserDetail);
+router.put("/users/:id",                ctrl.updateUser);
+router.put("/users/:id/ban",            ctrl.banUser);
+router.put("/users/:id/unban",          ctrl.unbanUser);
+router.post("/users/:id/award-points",  ctrl.awardPoints);
+router.get("/scans",                    ctrl.getAllScans);
+router.delete("/scans/:id",             ctrl.deleteScan);
+router.get("/coupons",                  ctrl.getAllCoupons);
+module.exports = router;

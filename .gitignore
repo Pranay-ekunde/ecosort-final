@@ -1,0 +1,65 @@
+# =========================
+# NODE MODULES
+# =========================
+node_modules/
+frontend/node_modules/
+backend/node_modules/
+
+# =========================
+# BUILD FILES
+# =========================
+dist/
+build/
+
+# =========================
+# PYTHON
+# =========================
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+venv/
+
+# =========================
+# ENV / SECRETS
+# =========================
+.env
+.env.*
+
+# =========================
+# UPLOADS
+# =========================
+uploads/
+backend/uploads/
+
+# =========================
+# CACHE / TEMP
+# =========================
+.cache/
+temp/
+tmp/
+
+# =========================
+# LOGS
+# =========================
+*.log
+
+# =========================
+# OS FILES
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# VSCODE
+# =========================
+.vscode/
+
+# =========================
+# OPTIONAL LOCAL FILES
+# =========================
+*.pptx
+ECOSORT_CHEATSHEET.md
+DOCUMENTATION/
+testpic/
+ai-service/testpic
