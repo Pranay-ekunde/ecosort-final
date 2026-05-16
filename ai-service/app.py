@@ -33,7 +33,8 @@ def load_model():
             outputs=model.output
         )
         print(f"Model loaded: {MODEL_PATH}")
-        print(f"Output shape: {feature_model.output.shape}")
+        # .outputs[0] works in TF 2.16+ where .output returns a list
+        print(f"Output shape: {feature_model.outputs[0].shape}")
         print(f"Class names: {CLASS_NAMES}")
     except Exception as e:
         import sys
