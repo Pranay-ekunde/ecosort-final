@@ -159,21 +159,26 @@ exports.classify = async (req, res) => {
     lastScanTime.set(userId.toString(), Date.now());
 
     // ── AI inference (send buffer directly) ───────────────────────────
+    // 90s timeout: Render free tier can take 30-50s to wake from sleep
     let aiResult;
     try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 90_000);
       const form = new FormData();
       form.append("file", imageBuffer, { filename: imageName, contentType: mimeType });
       const aiRes = await fetch(
         `${process.env.AI_SERVICE_URL || "http://localhost:8000"}/predict`,
-        { method: "POST", body: form, headers: form.getHeaders() }
+        { method: "POST", body: form, headers: form.getHeaders(), signal: controller.signal }
       );
+      clearTimeout(timer);
       if (!aiRes.ok) throw new Error(`AI service HTTP ${aiRes.status}`);
       aiResult = await aiRes.json();
     } catch (aiErr) {
+      const reason = aiErr.name === "AbortError" ? "AI service timed out (cold start). Please retry in 30s." : "AI service unavailable. Please try again later.";
       console.warn("[AI Service fallback]", aiErr.message);
       return res.status(503).json({
         success: false,
-        message: "AI service unavailable. Please try again later.",
+        message: reason,
         aiDown: true,
       });
     }
@@ -188,12 +193,15 @@ exports.classify = async (req, res) => {
     // ── CNN features for robust duplicate detection ──────────────────
     let cnnFeatures = null;
     try {
+      const ctrl2 = new AbortController();
+      const t2 = setTimeout(() => ctrl2.abort(), 60_000);
       const form = new FormData();
       form.append("file", imageBuffer, { filename: imageName, contentType: mimeType });
       const featRes = await fetch(
         `${process.env.AI_SERVICE_URL || "http://localhost:8000"}/features/extract`,
-        { method: "POST", body: form, headers: form.getHeaders() }
+        { method: "POST", body: form, headers: form.getHeaders(), signal: ctrl2.signal }
       );
+      clearTimeout(t2);
       if (featRes.ok) {
         const featData = await featRes.json();
         cnnFeatures = featData.features;

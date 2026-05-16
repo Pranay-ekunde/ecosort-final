@@ -31,4 +31,4 @@ services:
     startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --timeout 120 --workers 1
     envVars:
       - key: MODEL_PATH
-        value: models/best_model.keras
+        value: models/best_model.tflite
