@@ -1,8 +1,1 @@
-python-3.10.0 
-
-
-
-# Runtime configuration file
-# Specifies the Python version for deployment
-# Add this file to the root of your ai-service directory
-# This tells Render to use Python 3.10.13 for the AI service
+3.10.13

@@ -214,7 +214,9 @@ def feature_similarity():
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
-    load_model()
     port = int(os.getenv("PORT", 8000))
     print(f"EcoSort AI Service starting on port {port}")
     app.run(host="0.0.0.0", port=port, debug=False)
+else:
+    # Called by gunicorn — load model at import time
+    load_model()
