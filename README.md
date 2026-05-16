@@ -6,7 +6,7 @@ An advanced web platform that uses AI to classify household waste into recyclabl
 
 ## Features
 
-- **AI Classification** — MobileNetV2-based waste classification via upload or webcam
+- **AI Classification** — MobileNetV3-based waste classification via upload or webcam
 - **Duplicate Detection** — Multi-layer anti-abuse system (pHash + CNN similarity)
 - **Points & Tiers** — Earn points per classification, climb bronze → platinum
 - **Coupon Marketplace** — Redeem points for discounts from real brands
@@ -29,7 +29,7 @@ An advanced web platform that uses AI to classify household waste into recyclabl
 
 ## Project Structure
 
-```
+```text
 ecosort/
 ├── backend/              # Express API (port 5000)
 │   ├── src/
@@ -90,6 +90,10 @@ npm run dev
 # Opens http://localhost:5173
 ```
 
+<<<<<<< HEAD
+=======
+---
+>>>>>>> 5cc119e (feat: implement scan classification controller with anti-abuse middleware and pHash duplication detection)
 
 ## API Endpoints
 
