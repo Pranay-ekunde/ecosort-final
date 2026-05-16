@@ -22,25 +22,68 @@ output_details = None
 
 def load_model():
     global interpreter, input_details, output_details
-    try:
-        import tensorflow as tf
-        # tf.lite.Interpreter supports Flex ops (SELECT_TF_OPS) built in
-        tf.get_logger().setLevel("ERROR")
-        # Limit threads to save RAM on free-tier
-        tf.config.threading.set_inter_op_parallelism_threads(1)
-        tf.config.threading.set_intra_op_parallelism_threads(1)
-        interpreter = tf.lite.Interpreter(model_path=MODEL_PATH)
-        interpreter.allocate_tensors()
-        input_details  = interpreter.get_input_details()
-        output_details = interpreter.get_output_details()
-        print(f"TFLite model loaded: {MODEL_PATH}")
-        print(f"Input shape:  {input_details[0]['shape']}")
-        print(f"Output shape: {output_details[0]['shape']}")
-        print(f"Class names:  {CLASS_NAMES}")
-    except Exception as e:
-        print(f"ERROR: Could not load TFLite model ({e})", file=sys.stderr)
-        import traceback; traceback.print_exc(file=sys.stderr)
-        interpreter = None
+    import tensorflow as tf
+    tf.get_logger().setLevel("ERROR")
+    tf.config.threading.set_inter_op_parallelism_threads(1)
+    tf.config.threading.set_intra_op_parallelism_threads(1)
+
+    import os
+    print(f"[load_model] MODEL_PATH='{MODEL_PATH}'")
+    print(f"[load_model] file exists: {os.path.exists(MODEL_PATH)}")
+
+    # ── Try TFLite first ──────────────────────────────────────────────
+    tflite_path = MODEL_PATH if MODEL_PATH.endswith(".tflite") else MODEL_PATH.replace(".keras", ".tflite")
+    if os.path.exists(tflite_path):
+        try:
+            print(f"[load_model] loading TFLite: {tflite_path}")
+            interpreter = tf.lite.Interpreter(model_path=tflite_path)
+            interpreter.allocate_tensors()
+            input_details  = interpreter.get_input_details()
+            output_details = interpreter.get_output_details()
+            print(f"TFLite model loaded: {tflite_path}")
+            print(f"Input shape:  {input_details[0]['shape']}")
+            print(f"Output shape: {output_details[0]['shape']}")
+            print(f"Class names:  {CLASS_NAMES}")
+            return
+        except Exception as e:
+            print(f"[load_model] TFLite failed ({e}), trying Keras...", file=sys.stderr)
+
+    # ── Fallback: load full Keras model ───────────────────────────────
+    keras_path = MODEL_PATH if MODEL_PATH.endswith(".keras") else MODEL_PATH.replace(".tflite", ".keras")
+    if os.path.exists(keras_path):
+        try:
+            print(f"[load_model] loading Keras: {keras_path}")
+            _keras_model = tf.keras.models.load_model(keras_path, compile=False)
+            # Wrap as a callable so run_inference still works
+            import types
+            _fake_interp = types.SimpleNamespace()
+            _input = [{"index": 0, "shape": [1, 224, 224, 3], "dtype": "float32"}]
+            _output = [{"index": 0}]
+
+            def _set_tensor(idx, val): _fake_interp._input = val
+            def _invoke(): _fake_interp._output = _keras_model(_fake_interp._input, training=False).numpy()
+            def _get_tensor(idx): return _fake_interp._output
+
+            _fake_interp.set_tensor      = _set_tensor
+            _fake_interp.invoke          = _invoke
+            _fake_interp.get_tensor      = _get_tensor
+            _fake_interp.get_input_details  = lambda: _input
+            _fake_interp.get_output_details = lambda: _output
+
+            global interpreter, input_details, output_details
+            interpreter    = _fake_interp
+            input_details  = _input
+            output_details = _output
+            print(f"Keras model loaded (fallback): {keras_path}")
+            print(f"Class names: {CLASS_NAMES}")
+            return
+        except Exception as e:
+            print(f"[load_model] Keras fallback also failed: {e}", file=sys.stderr)
+            import traceback; traceback.print_exc(file=sys.stderr)
+
+    print(f"ERROR: No model found at '{MODEL_PATH}' (tried .tflite and .keras)", file=sys.stderr)
+    interpreter = None
+
 
 def preprocess(image_bytes):
     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
