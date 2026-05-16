@@ -1,6 +1,4 @@
 const fetch    = require("node-fetch");
-const fs       = require("fs");
-const path     = require("path");
 const FormData = require("form-data");
 const Scan     = require("../models/Scan");
 const User     = require("../models/User");
@@ -139,14 +137,19 @@ exports.classify = async (req, res) => {
       return res.status(400).json({ success: false, message: "Image file required" });
     }
 
-    const imageUrl  = `/uploads/${req.file.filename}`;
-    const imagePath = req.file.path;
-    const userId    = req.user._id;
+    // Image is in memory — no disk involved at all
+    const imageBuffer = req.file.buffer;
+    const imageName   = req.file.originalname;
+    const mimeType    = req.file.mimetype;
+    const userId      = req.user._id;
+
+    // Store a tiny data-URI thumbnail so scan history can still show the image
+    // (keeps MongoDB doc small — reduce if you hit doc size limits)
+    const imageUrl = `data:${mimeType};base64,${imageBuffer.toString("base64")}`;
 
     // ── Abuse check first ────────────────────────────────────────────
     const abuse = await checkAbuseRules(userId);
     if (!abuse.allowed) {
-      if (fs.existsSync(imagePath)) fs.unlinkSync(imagePath);
       return res.status(abuse.code).json({
         success: false, message: abuse.reason, limitExceeded: true,
       });
@@ -155,11 +158,11 @@ exports.classify = async (req, res) => {
     // ── Update cooldown first to prevent race condition ───────────────
     lastScanTime.set(userId.toString(), Date.now());
 
-    // ── AI inference ───────────────────────────────────────────────────
+    // ── AI inference (send buffer directly) ───────────────────────────
     let aiResult;
     try {
       const form = new FormData();
-      form.append("file", fs.createReadStream(imagePath), req.file.originalname);
+      form.append("file", imageBuffer, { filename: imageName, contentType: mimeType });
       const aiRes = await fetch(
         `${process.env.AI_SERVICE_URL || "http://localhost:8000"}/predict`,
         { method: "POST", body: form, headers: form.getHeaders() }
@@ -168,7 +171,6 @@ exports.classify = async (req, res) => {
       aiResult = await aiRes.json();
     } catch (aiErr) {
       console.warn("[AI Service fallback]", aiErr.message);
-      if (fs.existsSync(imagePath)) fs.unlinkSync(imagePath);
       return res.status(503).json({
         success: false,
         message: "AI service unavailable. Please try again later.",
@@ -178,16 +180,16 @@ exports.classify = async (req, res) => {
 
     const { prediction, confidence, scores } = aiResult;
 
-    // ── Perceptual hash ───────────────────────────────────────────────
+    // ── Perceptual hash (from buffer) ─────────────────────────────────
     let imageHash = null;
-    try { imageHash = computeHash(imagePath); }
+    try { imageHash = computeHash(imageBuffer); }
     catch (e) { console.warn("[pHash]", e.message); }
 
     // ── CNN features for robust duplicate detection ──────────────────
     let cnnFeatures = null;
     try {
       const form = new FormData();
-      form.append("file", fs.createReadStream(imagePath), req.file.originalname);
+      form.append("file", imageBuffer, { filename: imageName, contentType: mimeType });
       const featRes = await fetch(
         `${process.env.AI_SERVICE_URL || "http://localhost:8000"}/features/extract`,
         { method: "POST", body: form, headers: form.getHeaders() }
@@ -204,10 +206,10 @@ exports.classify = async (req, res) => {
 
     const pointsEarned = isDuplicate ? 0 : (prediction && POINTS_MAP[prediction] ? POINTS_MAP[prediction] : 5);
 
-    // ── Save scan ────────────────────────────────────────────────────
+    // ── Save scan (no local file path — imageUrl is a data-URI) ──────
     const scan = await Scan.create({
       user: userId, imageUrl,
-      imageName:   req.file.originalname,
+      imageName,
       prediction, confidence,
       allScores:   scores,
       imageHash, isDuplicate,
@@ -351,8 +353,7 @@ exports.deleteScan = async (req, res) => {
   try {
     const scan = await Scan.findOneAndDelete({ _id: req.params.id, user: req.user._id });
     if (!scan) return res.status(404).json({ success: false, message: "Scan not found" });
-    const fp = path.join(__dirname, "../../", scan.imageUrl);
-    if (fs.existsSync(fp)) fs.unlinkSync(fp);
+    // No local file to delete — images are stored as data-URIs in MongoDB
     res.json({ success: true, message: "Scan deleted" });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 };

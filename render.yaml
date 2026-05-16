@@ -1,0 +1,34 @@
+services:
+  # ── Node.js Backend ───────────────────────────────────────────────────
+  - type: web
+    name: ecosort-backend
+    runtime: node
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MONGODB_URI
+        sync: false          # set manually in Render dashboard
+      - key: JWT_SECRET
+        sync: false          # set manually in Render dashboard
+      - key: JWT_EXPIRE
+        value: 7d
+      - key: JWT_REFRESH_EXPIRE
+        value: 30d
+      - key: AI_SERVICE_URL
+        sync: false          # set to https://ecosort-ai.onrender.com after AI deploys
+      - key: FRONTEND_URL
+        sync: false          # set to https://your-app.vercel.app after frontend deploys
+
+  # ── Python AI Service ─────────────────────────────────────────────────
+  - type: web
+    name: ecosort-ai
+    runtime: python
+    rootDir: ai-service
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --timeout 120 --workers 1
+    envVars:
+      - key: MODEL_PATH
+        value: models/best_model.keras

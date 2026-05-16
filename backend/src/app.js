@@ -3,7 +3,6 @@ const cors       = require("cors");
 const helmet     = require("helmet");
 const morgan     = require("morgan");
 const rateLimit  = require("express-rate-limit");
-const path       = require("path");
 
 const authRoutes        = require("./routes/auth");
 const scanRoutes        = require("./routes/scans");
@@ -46,9 +45,6 @@ app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 if (process.env.NODE_ENV !== "test") {
   app.use(morgan("dev"));
 }
-
-// ── Static uploads ────────────────────────────────────────────────────
-app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
 
 // ── Routes ───────────────────────────────────────────────────────────
 app.use("/api/auth",         authRoutes);

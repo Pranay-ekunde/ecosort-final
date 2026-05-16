@@ -58,31 +58,49 @@ const SCRIPT_PATH = path.join(os.tmpdir(), "ecosort_phash.py");
 fs.writeFileSync(SCRIPT_PATH, PYTHON_SCRIPT, "utf8");
 
 /**
- * Compute pHash of an image file.
+ * Compute pHash of an image.
+ * @param {Buffer|string} input — raw image Buffer OR a file path string
  * Returns 16-char hex string. Falls back to SHA-256 on failure.
  */
-function computeHash(imagePath) {
-  const absPath = path.resolve(imagePath);
+function computeHash(input) {
+  // Normalise: if Buffer, write to a temp file for the Python script
+  let tempFile = null;
+  let absPath;
 
-  // Try python3 first, then python
-  const pythonCmds = ["python3", "python"];
-  for (const cmd of pythonCmds) {
-    try {
-      const result = execSync(
-        `${cmd} "${SCRIPT_PATH}" "${absPath}"`,
-        { timeout: 15000, encoding: "utf8" }
-      ).trim();
-
-      if (result && result.length === 16 && /^[0-9a-f]+$/.test(result)) {
-        return result;
-      }
-    } catch { /* try next */ }
+  if (Buffer.isBuffer(input)) {
+    tempFile = path.join(os.tmpdir(), `ecosort_tmp_${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`);
+    fs.writeFileSync(tempFile, input);
+    absPath = tempFile;
+  } else {
+    absPath = path.resolve(input);
   }
 
-  // Fallback: SHA-256 of file bytes (not perceptual but prevents exact duplicates)
-  console.warn("[pHash] Python unavailable — using SHA-256 fallback");
-  const buf = fs.readFileSync(absPath);
-  return crypto.createHash("sha256").update(buf).digest("hex").slice(0, 16);
+  try {
+    // Try python3 first, then python
+    const pythonCmds = ["python3", "python"];
+    for (const cmd of pythonCmds) {
+      try {
+        const result = execSync(
+          `${cmd} "${SCRIPT_PATH}" "${absPath}"`,
+          { timeout: 15000, encoding: "utf8" }
+        ).trim();
+
+        if (result && result.length === 16 && /^[0-9a-f]+$/.test(result)) {
+          return result;
+        }
+      } catch { /* try next */ }
+    }
+
+    // Fallback: SHA-256 (not perceptual but prevents exact duplicates)
+    console.warn("[pHash] Python unavailable — using SHA-256 fallback");
+    const buf = Buffer.isBuffer(input) ? input : fs.readFileSync(absPath);
+    return crypto.createHash("sha256").update(buf).digest("hex").slice(0, 16);
+  } finally {
+    // Always clean up temp file if we created one
+    if (tempFile && fs.existsSync(tempFile)) {
+      try { fs.unlinkSync(tempFile); } catch { /* ignore */ }
+    }
+  }
 }
 
 /**

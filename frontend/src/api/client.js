@@ -1,6 +1,8 @@
 import axios from "axios";
 
-const api = axios.create({ baseURL: "/api" });
+// In dev: VITE_API_URL is undefined → baseURL = "/api" → Vite proxy handles it
+// In prod: set VITE_API_URL=https://your-backend.onrender.com in Vercel env vars
+const api = axios.create({ baseURL: (import.meta.env.VITE_API_URL || "") + "/api" });
 
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem("token");
