@@ -12,114 +12,44 @@ from PIL import Image
 
 app = Flask(__name__)
 
-MODEL_PATH  = os.getenv("MODEL_PATH", "models/best_model.tflite")
+MODEL_PATH  = os.getenv("MODEL_PATH", "models/best_model.onnx")
 IMG_SIZE    = 224
 CLASS_NAMES = ["hazardous", "non_recyclable", "recyclable"]
 
-interpreter    = None
-input_details  = None
-output_details = None
-_infer_lock    = threading.Lock()   # TFLite interpreter is NOT thread-safe
+session    = None
+input_name = None
 
 def load_model():
-    global interpreter, input_details, output_details
-    import tensorflow as tf
-    tf.get_logger().setLevel("ERROR")
-    tf.config.threading.set_inter_op_parallelism_threads(1)
-    tf.config.threading.set_intra_op_parallelism_threads(1)
-
+    global session, input_name
     import os
     print(f"[load_model] MODEL_PATH='{MODEL_PATH}'")
-    print(f"[load_model] file exists: {os.path.exists(MODEL_PATH)}")
 
-    # ── Try TFLite first ──────────────────────────────────────────────
-    tflite_path = MODEL_PATH if MODEL_PATH.endswith(".tflite") else MODEL_PATH.replace(".keras", ".tflite")
-    if os.path.exists(tflite_path):
+    onnx_path = MODEL_PATH if MODEL_PATH.endswith(".onnx") else MODEL_PATH.replace(".tflite", ".onnx").replace(".keras", ".onnx")
+    if os.path.exists(onnx_path):
         try:
-            print(f"[load_model] loading TFLite: {tflite_path}")
-            interpreter = tf.lite.Interpreter(model_path=tflite_path)
-            interpreter.allocate_tensors()
-            input_details  = interpreter.get_input_details()
-            output_details = interpreter.get_output_details()
-            print(f"TFLite model loaded: {tflite_path}")
-            print(f"Input shape:  {input_details[0]['shape']}")
-            print(f"Output shape: {output_details[0]['shape']}")
-            print(f"Class names:  {CLASS_NAMES}")
-            _prewarm()
-            return
-        except Exception as e:
-            print(f"[load_model] TFLite failed ({e}), trying Keras...", file=sys.stderr)
-
-    # ── Fallback: load full Keras model ───────────────────────────────
-    keras_path = MODEL_PATH if MODEL_PATH.endswith(".keras") else MODEL_PATH.replace(".tflite", ".keras")
-    if os.path.exists(keras_path):
-        try:
-            print(f"[load_model] loading Keras: {keras_path}")
-            _keras_model = tf.keras.models.load_model(keras_path, compile=False)
-            # Wrap as a callable so run_inference still works
-            import types
-            _fake_interp = types.SimpleNamespace()
-            _input = [{"index": 0, "shape": [1, 224, 224, 3], "dtype": "float32"}]
-            _output = [{"index": 0}]
-
-            def _set_tensor(idx, val): _fake_interp._input = val
-            def _invoke():
-                # preprocess() already divided by 255 for TFLite.
-                # Keras model has Rescaling(1/255) built-in, so undo the /255 here.
-                raw = _fake_interp._input * 255.0
-                _fake_interp._output = _keras_model(raw, training=False).numpy()
-            def _get_tensor(idx): return _fake_interp._output
-
-            _fake_interp.set_tensor      = _set_tensor
-            _fake_interp.invoke          = _invoke
-            _fake_interp.get_tensor      = _get_tensor
-            _fake_interp.get_input_details  = lambda: _input
-            _fake_interp.get_output_details = lambda: _output
-
-            interpreter    = _fake_interp
-            input_details  = _input
-            output_details = _output
-            print(f"Keras model loaded (fallback): {keras_path}")
+            import onnxruntime as ort
+            print(f"[load_model] loading ONNX: {onnx_path}")
+            session = ort.InferenceSession(onnx_path, providers=['CPUExecutionProvider'])
+            input_name = session.get_inputs()[0].name
+            print(f"ONNX model loaded: {onnx_path}")
             print(f"Class names: {CLASS_NAMES}")
-            _prewarm()
             return
         except Exception as e:
-            print(f"[load_model] Keras fallback also failed: {e}", file=sys.stderr)
+            print(f"[load_model] ONNX failed: {e}", file=sys.stderr)
             import traceback; traceback.print_exc(file=sys.stderr)
 
-    print(f"ERROR: No model found at '{MODEL_PATH}' (tried .tflite and .keras)", file=sys.stderr)
-    interpreter = None
-
-def _prewarm():
-    """Run one dummy inference to force Flex ops JIT compilation at startup.
-    Without this, the first real request triggers JIT which takes 60-120s
-    and causes gunicorn to SIGKILL the worker (WORKER TIMEOUT).
-    """
-    print("[prewarm] Initializing Flex ops delegate (may take 60-120s)...")
-    try:
-        dummy = np.zeros((1, IMG_SIZE, IMG_SIZE, 3), dtype=np.float32)
-        run_inference(dummy)
-        print("[prewarm] Flex ops delegate ready. Service accepting requests.")
-    except Exception as e:
-        print(f"[prewarm] Warning: pre-warm failed ({e}) — first request may be slow", file=sys.stderr)
-
+    print(f"ERROR: No model found at '{onnx_path}'", file=sys.stderr)
 
 def preprocess(image_bytes):
     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     img = img.resize((IMG_SIZE, IMG_SIZE), Image.BILINEAR)
-    # Normalize to [0,1] — TFLite conversion removes the Rescaling layer from the graph,
-    # so we must apply 1/255 normalization here explicitly.
     arr = np.array(img, dtype=np.float32) / 255.0
     return np.expand_dims(arr, axis=0)
 
 def run_inference(arr):
-    """Run TFLite inference (thread-safe via lock), return output array."""
-    with _infer_lock:
-        interpreter.set_tensor(input_details[0]['index'], arr)
-        interpreter.invoke()
-        output = interpreter.get_tensor(output_details[0]['index'])[0].copy()
-    print(f"[inference] raw scores: {output}")  # debug — remove after confirming
-    return output
+    """Run ONNX inference, return output array."""
+    preds = session.run(None, {input_name: arr})[0]
+    return preds[0]
 
 def mock_predict():
     import random
@@ -147,7 +77,7 @@ def health():
     return jsonify({
         "status":       "ok",
         "service":      "ecosort-ai",
-        "model_loaded": interpreter is not None,
+        "model_loaded": session is not None,
         "model_path":   MODEL_PATH,
     })
 
@@ -166,7 +96,7 @@ def predict():
 
     try:
         image_bytes = file.read()
-        if interpreter is None:
+        if session is None:
             result = mock_predict()
             print(f"[MOCK] {result['prediction']} conf={result['confidence']}")
         else:
@@ -197,7 +127,7 @@ def predict_batch():
     results = []
     for f in files:
         try:
-            if interpreter is None:
+            if session is None:
                 r = mock_predict()
             else:
                 arr   = preprocess(f.read())
@@ -228,7 +158,7 @@ def feature_similarity():
     try:
         features = []
         for f in files:
-            if interpreter is None:
+            if session is None:
                 feat = np.random.rand(3).astype(np.float32)
             else:
                 arr  = preprocess(f.read())
