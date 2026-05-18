@@ -45,6 +45,7 @@ def load_model():
             print(f"Input shape:  {input_details[0]['shape']}")
             print(f"Output shape: {output_details[0]['shape']}")
             print(f"Class names:  {CLASS_NAMES}")
+            _prewarm()
             return
         except Exception as e:
             print(f"[load_model] TFLite failed ({e}), trying Keras...", file=sys.stderr)
@@ -80,6 +81,7 @@ def load_model():
             output_details = _output
             print(f"Keras model loaded (fallback): {keras_path}")
             print(f"Class names: {CLASS_NAMES}")
+            _prewarm()
             return
         except Exception as e:
             print(f"[load_model] Keras fallback also failed: {e}", file=sys.stderr)
@@ -87,6 +89,19 @@ def load_model():
 
     print(f"ERROR: No model found at '{MODEL_PATH}' (tried .tflite and .keras)", file=sys.stderr)
     interpreter = None
+
+def _prewarm():
+    """Run one dummy inference to force Flex ops JIT compilation at startup.
+    Without this, the first real request triggers JIT which takes 60-120s
+    and causes gunicorn to SIGKILL the worker (WORKER TIMEOUT).
+    """
+    print("[prewarm] Initializing Flex ops delegate (may take 60-120s)...")
+    try:
+        dummy = np.zeros((1, IMG_SIZE, IMG_SIZE, 3), dtype=np.float32)
+        run_inference(dummy)
+        print("[prewarm] Flex ops delegate ready. Service accepting requests.")
+    except Exception as e:
+        print(f"[prewarm] Warning: pre-warm failed ({e}) — first request may be slow", file=sys.stderr)
 
 
 def preprocess(image_bytes):
