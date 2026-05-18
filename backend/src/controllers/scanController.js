@@ -190,23 +190,11 @@ exports.classify = async (req, res) => {
     try { imageHash = computeHash(imageBuffer); }
     catch (e) { console.warn("[pHash]", e.message); }
 
-    // ── CNN features for robust duplicate detection ──────────────────
-    let cnnFeatures = null;
-    try {
-      const ctrl2 = new AbortController();
-      const t2 = setTimeout(() => ctrl2.abort(), 60_000);
-      const form = new FormData();
-      form.append("file", imageBuffer, { filename: imageName, contentType: mimeType });
-      const featRes = await fetch(
-        `${process.env.AI_SERVICE_URL || "http://localhost:8000"}/features/extract`,
-        { method: "POST", body: form, headers: form.getHeaders(), signal: ctrl2.signal }
-      );
-      clearTimeout(t2);
-      if (featRes.ok) {
-        const featData = await featRes.json();
-        cnnFeatures = featData.features;
-      }
-    } catch (e) { console.warn("[CNN Features]", e.message); }
+    // ── CNN features disabled ─────────────────────────────────────────
+    // TFLite model outputs 3-class softmax scores, NOT 1280-dim visual features.
+    // Any two images of the same class have cosine similarity ≈ 0.99 → false duplicates.
+    // Duplicate detection uses pHash only (actual pixel similarity).
+    const cnnFeatures = null;
 
     // ── Duplicate check (pHash + CNN + same classification) ─────────────
     const dupResult = await checkDuplicate(userId, imageHash, cnnFeatures, prediction);

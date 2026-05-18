@@ -5,7 +5,7 @@ POST /predict/batch    — multiple images
 POST /features/extract — extract output vector for duplicate detection
 GET  /health           — service status
 """
-import os, io, gc, sys
+import os, io, gc, sys, threading
 import numpy as np
 from flask import Flask, request, jsonify
 from PIL import Image
@@ -19,6 +19,7 @@ CLASS_NAMES = ["hazardous", "non_recyclable", "recyclable"]
 interpreter    = None
 input_details  = None
 output_details = None
+_infer_lock    = threading.Lock()   # TFLite interpreter is NOT thread-safe
 
 def load_model():
     global interpreter, input_details, output_details
@@ -61,7 +62,11 @@ def load_model():
             _output = [{"index": 0}]
 
             def _set_tensor(idx, val): _fake_interp._input = val
-            def _invoke(): _fake_interp._output = _keras_model(_fake_interp._input, training=False).numpy()
+            def _invoke():
+                # preprocess() already divided by 255 for TFLite.
+                # Keras model has Rescaling(1/255) built-in, so undo the /255 here.
+                raw = _fake_interp._input * 255.0
+                _fake_interp._output = _keras_model(raw, training=False).numpy()
             def _get_tensor(idx): return _fake_interp._output
 
             _fake_interp.set_tensor      = _set_tensor
@@ -70,7 +75,6 @@ def load_model():
             _fake_interp.get_input_details  = lambda: _input
             _fake_interp.get_output_details = lambda: _output
 
-            global interpreter, input_details, output_details
             interpreter    = _fake_interp
             input_details  = _input
             output_details = _output
@@ -88,15 +92,19 @@ def load_model():
 def preprocess(image_bytes):
     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     img = img.resize((IMG_SIZE, IMG_SIZE), Image.BILINEAR)
-    # Pass raw [0,255] — the model's Rescaling(1/255) layer handles normalization
-    arr = np.array(img, dtype=np.float32)
+    # Normalize to [0,1] — TFLite conversion removes the Rescaling layer from the graph,
+    # so we must apply 1/255 normalization here explicitly.
+    arr = np.array(img, dtype=np.float32) / 255.0
     return np.expand_dims(arr, axis=0)
 
 def run_inference(arr):
-    """Run TFLite inference, return output array."""
-    interpreter.set_tensor(input_details[0]['index'], arr)
-    interpreter.invoke()
-    return interpreter.get_tensor(output_details[0]['index'])[0]
+    """Run TFLite inference (thread-safe via lock), return output array."""
+    with _infer_lock:
+        interpreter.set_tensor(input_details[0]['index'], arr)
+        interpreter.invoke()
+        output = interpreter.get_tensor(output_details[0]['index'])[0].copy()
+    print(f"[inference] raw scores: {output}")  # debug — remove after confirming
+    return output
 
 def mock_predict():
     import random
@@ -193,35 +201,8 @@ def predict_batch():
 
 @app.route("/features/extract", methods=["POST"])
 def extract_features():
-    """Return output vector as features for duplicate detection."""
-    if "file" not in request.files:
-        return jsonify({"error": "No image file provided"}), 400
-    file = request.files["file"]
-    if not file.filename:
-        return jsonify({"error": "Empty filename"}), 400
-
-    allowed = {"jpg", "jpeg", "png", "webp"}
-    ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
-    if ext not in allowed:
-        return jsonify({"error": f"Unsupported format: {ext}"}), 400
-
-    try:
-        image_bytes = file.read()
-        if interpreter is None:
-            features = np.random.rand(3).astype(np.float32)
-        else:
-            arr      = preprocess(image_bytes)
-            features = run_inference(arr)
-            features = features.flatten().astype(np.float32)
-
-        return jsonify({
-            "features":    features.tolist(),
-            "feature_dim": len(features),
-        })
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-    finally:
-        gc.collect()
+    """Deprecated: CNN features disabled (TFLite outputs 3-dim softmax, not visual features)."""
+    return jsonify({"features": None, "feature_dim": 0, "disabled": True}), 200
 
 @app.route("/features/similarity", methods=["POST"])
 def feature_similarity():
