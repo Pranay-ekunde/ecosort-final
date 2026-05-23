@@ -90,10 +90,7 @@ npm run dev
 # Opens http://localhost:5173
 ```
 
-<<<<<<< HEAD
-=======
 ---
->>>>>>> 5cc119e (feat: implement scan classification controller with anti-abuse middleware and pHash duplication detection)
 
 ## API Endpoints
 

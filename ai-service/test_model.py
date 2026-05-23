@@ -1,103 +1,100 @@
 """
-Test script to verify model predictions on sample images
+EcoSort Model Tester — Run ONNX Inference on Local Images
+Verifies classification mapping, scaling, and confidence on sample images.
+
+Usage:
+  python test_model.py                      # tests files inside 'testpic' directory
+  python test_model.py path/to/image.jpg    # tests a specific image file
 """
+
 import os
 import sys
 import numpy as np
 from PIL import Image
+import onnxruntime as ort
 
-# Set paths
-MODEL_PATH = "models/best_model.keras"
-TEST_IMAGES_DIR = "test_images"
-
-# Class names in alphabetical order (how Keras sees them)
+MODEL_PATH = "models/best_model.onnx"
+TEST_DIR = "testpic"
 CLASS_NAMES = ["hazardous", "non_recyclable", "recyclable"]
+IMG_SIZE = 224
 
 print("=" * 60)
-print("EcoSort Model Prediction Tester")
+print("EcoSort ONNX Model Prediction Tester")
 print("=" * 60)
 
-print("\nLoading model...")
-import tensorflow as tf
-tf.get_logger().setLevel("ERROR")
-model = tf.keras.models.load_model(MODEL_PATH, compile=False)
-print(f"Model loaded. Output shape: {model.output_shape}")
-print(f"Class order: {CLASS_NAMES}")
-print()
+# Check model file
+if not os.path.exists(MODEL_PATH):
+    print(f"ERROR: Model file not found at '{MODEL_PATH}'")
+    print("Please make sure you have downloaded the best_model.onnx file from Kaggle and placed it in the 'models/' folder.")
+    sys.exit(1)
 
-def test_image(img_path, expected_class=None):
-    """Test a single image and print results"""
-    print(f"\n--- Testing: {os.path.basename(img_path)} ---")
+print(f"Loading ONNX Model from: {MODEL_PATH}...")
+try:
+    session = ort.InferenceSession(MODEL_PATH, providers=['CPUExecutionProvider'])
+    input_name = session.get_inputs()[0].name
+    print("Model loaded successfully!")
+    print(f"Input Name : {input_name}")
+    print(f"Class Order: {CLASS_NAMES}")
+except Exception as e:
+    print(f"ERROR loading model: {e}")
+    sys.exit(1)
 
+def test_image(img_path):
+    """Preprocess image and execute inference session."""
+    if not os.path.exists(img_path):
+        print(f"File not found: {img_path}")
+        return
+
+    # Load and preprocess
     img = Image.open(img_path).convert("RGB")
-    img_resized = img.resize((224, 224), Image.BILINEAR)
+    img_resized = img.resize((IMG_SIZE, IMG_SIZE), Image.BILINEAR)
     arr = np.array(img_resized, dtype=np.float32)
-
-    # Test with [0, 1] normalization (WRONG for this model)
-    arr_01 = np.expand_dims(arr / 255.0, axis=0)
-    preds_01 = model.predict(arr_01, verbose=0)[0]
-
-    # Test with raw [0, 255] - CORRECT for model with Rescaling(1./255)
-    arr_raw = np.expand_dims(arr, axis=0)
-    preds_raw = model.predict(arr_raw, verbose=0)[0]
-
-    print(f"  Method [0,1] - Predictions:")
-    for i, (name, pred) in enumerate(zip(CLASS_NAMES, preds_01)):
-        marker = " <-- HIGHEST" if i == int(np.argmax(preds_01)) else ""
-        print(f"    [{i}] {name:20s}: {pred:.4f}{marker}")
-
-    print(f"  Method [0,255] raw - Predictions:")
-    for i, (name, pred) in enumerate(zip(CLASS_NAMES, preds_raw)):
-        marker = " <-- HIGHEST" if i == int(np.argmax(preds_raw)) else ""
-        print(f"    [{i}] {name:20s}: {pred:.4f}{marker}")
-
-    # Use the raw [0,255] method since model has Rescaling(1./255)
-    preds = preds_raw
-    method = "[0,255]"
-
+    
+    # Model contains internal Rescaling(1./255), so we feed raw [0, 255] float arrays
+    arr_input = np.expand_dims(arr, axis=0)
+    
+    # Inference
+    preds = session.run(None, {input_name: arr_input})[0][0]
+    
     pred_idx = int(np.argmax(preds))
     predicted_class = CLASS_NAMES[pred_idx]
     confidence = preds[pred_idx]
-    print(f"  -> Using {method}: {predicted_class} (confidence: {confidence:.4f})")
-
-    if expected_class:
-        match = "CORRECT" if predicted_class == expected_class else "WRONG"
-        print(f"  -> Expected: {expected_class} -> {match}")
-
+    
+    print(f"\n--- Results for: {os.path.basename(img_path)} ---")
+    print(f"  Predicted Category: {predicted_class.upper()} (Confidence: {confidence:.4f})")
+    print("  Detailed Scores:")
+    for name, score in zip(CLASS_NAMES, preds):
+        marker = " <-- HIGHEST" if name == predicted_class else ""
+        print(f"    - {name:15s}: {score:.4f}{marker}")
+        
     return predicted_class, confidence
 
-# Check for test images
-test_images = []
-
-if os.path.exists(TEST_IMAGES_DIR):
-    for f in os.listdir(TEST_IMAGES_DIR):
-        if f.lower().endswith(('.jpg', '.jpeg', '.png')):
-            test_images.append(os.path.join(TEST_IMAGES_DIR, f))
-
-# Also check backend uploads for recent images
-backend_uploads = "D:/ecosort-final/backend/uploads"
-if os.path.exists(backend_uploads):
-    try:
-        files = [f for f in os.listdir(backend_uploads) if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
-        # Sort by name (newer uploads have longer numeric prefixes)
-        files.sort(reverse=True)
-        for f in files[:5]:  # Test 5 most recent uploads
-            full_path = os.path.join(backend_uploads, f)
-            if os.path.exists(full_path):
-                test_images.append(full_path)
-    except Exception as e:
-        print(f"  Could not load backend uploads: {e}")
-
-if test_images:
-    print(f"Testing {len(test_images)} images...\n")
-
-    for img_path in test_images:
-        try:
-            test_image(img_path)
-        except Exception as e:
-            print(f"  Error testing {img_path}: {e}")
+# Main flow
+if len(sys.argv) > 1:
+    # Test specific file
+    target = sys.argv[1]
+    test_image(target)
 else:
-    print("No test images found. Please add images to test_images folder.")
+    # Test directory
+    print(f"\nScanning test directory: '{TEST_DIR}'...")
+    if not os.path.exists(TEST_DIR):
+        print(f"Directory '{TEST_DIR}' not found.")
+        sys.exit(0)
+        
+    files = [os.path.join(TEST_DIR, f) for f in os.listdir(TEST_DIR) 
+             if f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp'))]
+    
+    if not files:
+        print(f"No image files found in '{TEST_DIR}'.")
+        sys.exit(0)
+        
+    print(f"Found {len(files)} test images. Testing first 5 images...")
+    for f in files[:5]:
+        try:
+            test_image(f)
+        except Exception as e:
+            print(f"  Error testing {os.path.basename(f)}: {e}")
 
 print("\n" + "=" * 60)
-print("Done!")
+print("Testing completed!")
+print("=" * 60)

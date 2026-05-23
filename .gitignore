@@ -19,6 +19,7 @@ __pycache__/
 *.pyo
 *.pyd
 venv/
+DOCUMENTATION/KAGGLE_TRAINING.py
 
 # =========================
 # ENV / SECRETS
